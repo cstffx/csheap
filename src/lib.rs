@@ -37,7 +37,7 @@ impl<T> Heap<T> where T: PartialOrd {
         self.up_head(self.data.len() - 1);
     }
 
-    fn extract(&mut self) -> Option<T> {
+    pub fn extract(&mut self) -> Option<T> {
         if self.data.is_empty() {
             None
         } else if self.data.len() == 1 {
