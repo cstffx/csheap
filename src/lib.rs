@@ -13,19 +13,20 @@ pub struct Heap<T> {
 
 impl<T> Heap<T> where T: PartialOrd {
     pub fn new(heap_type: HeapType) -> Self {
-        let comparator: HeapComparator<T>;
-        if heap_type == HeapType::Min {
-            comparator = |a: &T, b: &T| {
-                a > b
-            }
-        } else {
-            comparator = |a: &T, b: &T| -> bool {
-                a < b
-            }
-        }
         Self {
             data: Vec::new(),
-            comparator,
+            comparator: Heap::get_comparator(heap_type),
+        }
+    }
+
+    fn get_comparator(heap_type: HeapType) -> HeapComparator<T> {
+        match heap_type {
+            HeapType::Min => |a: &T, b: &T| {
+                a > b
+            },
+            HeapType::Max => |a: &T, b: &T| -> bool {
+                a < b
+            }
         }
     }
 
@@ -54,6 +55,28 @@ impl<T> Heap<T> where T: PartialOrd {
             self.down_head(0);
 
             Some(result)
+        }
+    }
+
+    pub fn from_array(heap_type: HeapType, input: Vec<T>) -> Self {
+        let mut heap = Self {
+            data: input,
+            comparator: Self::get_comparator(heap_type)
+        };
+        heap.normalize();
+        heap
+    }
+
+    pub fn normalize(&mut self) {
+        let start: usize = self.data.len() / 2;
+        for i in start..0 {
+            let affected = self.heapify(i);
+            if affected.is_none() {
+                continue;
+            }else if i != 0 {
+                let parent = (i - 1) / 2;
+                self.heapify(parent);
+            }
         }
     }
 
@@ -134,5 +157,21 @@ mod test {
             assert!(current < last);
             last = current;
         }
+
+        let mut heap = Heap::<u32>::new(HeapType::Max);
+        heap.insert(10);
+        heap.insert(4);
+        heap.insert(33);
+        heap.insert(46);
+        heap.insert(3);
+        assert!(heap.root().unwrap() == &46u32);
+
+        let mut heap = Heap::<u32>::new(HeapType::Min);
+        heap.insert(10);
+        heap.insert(4);
+        heap.insert(33);
+        heap.insert(46);
+        heap.insert(3);
+        assert!(heap.root().unwrap() == &3u32)
     }
 }
