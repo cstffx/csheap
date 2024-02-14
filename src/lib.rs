@@ -89,6 +89,10 @@ impl<T> Heap<T> where T: PartialOrd + std::fmt::Display  {
         self.data.get(index)
     }
 
+    pub fn raw(&self) -> &Vec<T> {
+        &self.data
+    }
+
     fn heapify(&mut self, index: usize) -> Option<usize> {
         let mut max_index: usize = index;   // set parent as max element.
 
