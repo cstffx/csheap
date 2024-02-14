@@ -6,12 +6,13 @@ pub enum HeapType {
     Max,
 }
 
+#[derive(Debug)]
 pub struct Heap<T> {
     data: Vec<T>,
     comparator: HeapComparator<T>,
 }
 
-impl<T> Heap<T> where T: PartialOrd {
+impl<T> Heap<T> where T: PartialOrd + std::fmt::Display  {
     pub fn new(heap_type: HeapType) -> Self {
         Self {
             data: Vec::new(),
@@ -68,14 +69,18 @@ impl<T> Heap<T> where T: PartialOrd {
     }
 
     pub fn normalize(&mut self) {
-        let start: usize = self.data.len() / 2;
-        for i in start..0 {
+        let mut i: usize = self.data.len() / 2;
+        loop {
+            eprintln!("{}", "top");
             let affected = self.heapify(i);
-            if affected.is_none() {
-                continue;
-            }else if i != 0 {
+            if !affected.is_none() && i != 0 {
                 let parent = (i - 1) / 2;
+                eprintln!("{}", parent);
                 self.heapify(parent);
+            }
+            i = i - 1;
+            if i == 0 {
+                break;
             }
         }
     }
@@ -172,6 +177,13 @@ mod test {
         heap.insert(33);
         heap.insert(46);
         heap.insert(3);
-        assert!(heap.root().unwrap() == &3u32)
+        assert!(heap.root().unwrap() == &3u32);
+
+
+        let vec: Vec<u32> = vec![1, 7, 3, 4, 5, 6, 8];
+        let heap = Heap::from_array(HeapType::Max, vec);
+        let expected = 8u32;
+        let result = heap.root().unwrap();
+        assert_eq!(expected, *result);
     }
 }
