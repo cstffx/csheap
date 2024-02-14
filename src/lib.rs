@@ -1,16 +1,33 @@
 use std::fmt::Display;
-use std::io;
 
-#[derive(Debug)]
+type HeapComparator<T> = fn(a: &T, b: &T) -> bool;
+
+#[derive(PartialEq)]
+enum HeapType {
+    Min,
+    Max,
+}
+
 struct Heap<T> {
     data: Vec<T>,
+    comparator: HeapComparator<T>,
 }
 
 impl<T> Heap<T> where T: PartialOrd {
-
-    pub fn new() -> Heap<T> {
-        Heap {
-            data: Vec::new()
+    pub fn new(heap_type: HeapType) -> Self {
+        let comparator: HeapComparator<T>;
+        if heap_type == HeapType::Min {
+            comparator = |a: &T, b: &T| {
+                a > b
+            }
+        } else {
+            comparator = |a: &T, b: &T| -> bool {
+                a < b
+            }
+        }
+        Self {
+            data: Vec::new(),
+            comparator,
         }
     }
 
@@ -23,7 +40,7 @@ impl<T> Heap<T> where T: PartialOrd {
     }
 
     fn extract(&mut self) -> Option<T> {
-        if (self.data.is_empty()) {
+        if self.data.is_empty() {
             None
         } else if self.data.len() == 1 {
             Some(self.data.remove(0))
@@ -45,13 +62,14 @@ impl<T> Heap<T> where T: PartialOrd {
         let r_index = 2 * index + 2;        // get right child
 
         let data = &mut self.data;          // to short
+        let comparator = self.comparator;
 
         //  determinate max index
-        if !data.get(l_index).is_none() && data[l_index] < data[max_index] {
+        if !data.get(l_index).is_none() && comparator(&data[l_index], &data[max_index]) {
             max_index = l_index;
         }
 
-        if !data.get(r_index).is_none() && data[r_index] < data[max_index] {
+        if !data.get(r_index).is_none() && comparator(&data[r_index], &data[max_index]) {
             max_index = r_index;
         }
 
@@ -77,7 +95,7 @@ impl<T> Heap<T> where T: PartialOrd {
         match affected_index {
             None => return,
             Some(index) => {
-                if (index != (self.data.len() - 1)) {
+                if index != (self.data.len() - 1) {
                     self.down_head(index)
                 }
             }
@@ -85,11 +103,13 @@ impl<T> Heap<T> where T: PartialOrd {
     }
 }
 
+#[cfg(test)]
 mod test {
-    use crate::Heap;
+    use crate::{Heap, HeapType};
+
     #[test]
     fn test_insert() {
-        let mut heap = Heap::<u32>::new();
+        let mut heap = Heap::<u32>::new(HeapType::Max);
         for i in 0..10 {
             heap.insert(i);
         }
