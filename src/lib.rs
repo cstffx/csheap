@@ -85,6 +85,10 @@ impl<T> Heap<T> where T: PartialOrd + std::fmt::Display  {
         }
     }
 
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.data.get(index)
+    }
+
     fn heapify(&mut self, index: usize) -> Option<usize> {
         let mut max_index: usize = index;   // set parent as max element.
 
@@ -178,7 +182,6 @@ mod test {
         heap.insert(46);
         heap.insert(3);
         assert!(heap.root().unwrap() == &3u32);
-
 
         let vec: Vec<u32> = vec![1, 7, 3, 4, 5, 6, 8];
         let heap = Heap::from_array(HeapType::Max, vec);
