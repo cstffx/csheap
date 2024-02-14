@@ -63,11 +63,11 @@ impl<T> Heap<T> where T: PartialOrd {
         let comparator = self.comparator;
 
         //  determinate max index
-        if !data.get(l_index).is_none() && comparator(&data[l_index], &data[max_index]) {
+        if !data.get(l_index).is_none() && comparator(&data[max_index], &data[l_index]) {
             max_index = l_index;
         }
 
-        if !data.get(r_index).is_none() && comparator(&data[r_index], &data[max_index]) {
+        if !data.get(r_index).is_none() && comparator(&data[max_index], &data[r_index]) {
             max_index = r_index;
         }
 
