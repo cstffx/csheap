@@ -71,11 +71,9 @@ impl<T> Heap<T> where T: PartialOrd + std::fmt::Display  {
     pub fn normalize(&mut self) {
         let mut i: usize = self.data.len() / 2;
         loop {
-            eprintln!("{}", "top");
             let affected = self.heapify(i);
             if !affected.is_none() && i != 0 {
                 let parent = (i - 1) / 2;
-                eprintln!("{}", parent);
                 self.heapify(parent);
             }
             i = i - 1;
