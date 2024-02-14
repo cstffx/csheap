@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 type HeapComparator<T> = fn(a: &T, b: &T) -> bool;
 
 #[derive(PartialEq)]
@@ -110,13 +108,26 @@ mod test {
     #[test]
     fn test_insert() {
         let mut heap = Heap::<u32>::new(HeapType::Max);
-        for i in 0..10 {
+        let elements: u32 = 100;
+
+        for i in 0..elements {
             heap.insert(i);
         }
         let mut last: u32 = heap.extract().unwrap();
-        for _ in 0..9 {
+        for _ in elements..0 {
             let current: u32 = heap.extract().unwrap();
             assert!(current > last);
+            last = current;
+        }
+
+        let mut heap = Heap::<u32>::new(HeapType::Min);
+        for i in 0..elements {
+            heap.insert(i);
+        }
+        let mut last: u32 = heap.extract().unwrap();
+        for _ in elements..0 {
+            let current: u32 = heap.extract().unwrap();
+            assert!(current < last);
             last = current;
         }
     }
