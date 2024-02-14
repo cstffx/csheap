@@ -1,12 +1,12 @@
-type HeapComparator<T> = fn(a: &T, b: &T) -> bool;
+pub type HeapComparator<T> = fn(a: &T, b: &T) -> bool;
 
 #[derive(PartialEq)]
-enum HeapType {
+pub enum HeapType {
     Min,
     Max,
 }
 
-struct Heap<T> {
+pub struct Heap<T> {
     data: Vec<T>,
     comparator: HeapComparator<T>,
 }
