@@ -271,13 +271,26 @@ mod test {
     }
 
     #[test]
-    fn test_from_vec() {
+    fn test_from_vec_min() {
         let input: Vec<u32> = random_vec(100);
         let mut heap = Heap::<u32>::from_vec(HeapType::Min, input.clone());
 
         let output = heap.collect();
         let mut expected = input.clone();
         expected.sort();
+
+        assert_eq!(expected, output);
+    }
+
+    #[test]
+    fn test_from_vec_max() {
+        let input: Vec<u32> = random_vec(100);
+        let mut heap = Heap::<u32>::from_vec(HeapType::Max, input.clone());
+
+        let output = heap.collect();
+        let mut expected = input.clone();
+        expected.sort();
+        expected.reverse();
 
         assert_eq!(expected, output);
     }
