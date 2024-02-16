@@ -33,14 +33,6 @@ impl<T> Heap<T> where T: PartialOrd + std::fmt::Display {
         Heap::from_vec(heap_type, input)
     }
 
-    pub fn heapify_asc(&mut self, index: usize) {
-        let mut i = index;
-        let mut do_more = Some(0);
-        while do_more.is_some() {
-            do_more = self.heapify(i);
-        }
-    }
-
     pub fn from_vec(heap_type: HeapType, input: Vec<T>) -> Self {
         let mut heap = Self {
             data: input,
@@ -280,10 +272,8 @@ mod test {
 
     #[test]
     fn test_from_vec() {
-        let mut input: Vec<u32> = random_vec(100);
+        let input: Vec<u32> = random_vec(100);
         let mut heap = Heap::<u32>::from_vec(HeapType::Min, input.clone());
-
-        eprintln!("{:?}", heap.raw());
 
         let output = heap.collect();
         let mut expected = input.clone();
