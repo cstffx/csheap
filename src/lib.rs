@@ -283,6 +283,12 @@ mod test {
     }
 
     #[test]
+    fn test_from_vec_edge() {
+        // From empty vector
+        let _ = Heap::<u32>::from_vec(HeapType::Max, Vec::new());
+    }
+
+    #[test]
     fn test_from_vec_max() {
         let input: Vec<u32> = random_vec(100);
         let mut heap = Heap::<u32>::from_vec(HeapType::Max, input.clone());
