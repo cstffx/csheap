@@ -1,34 +1,63 @@
-pub type HeapComparator<T> = fn(a: &T, b: &T) -> bool;
+use std::mem::ManuallyDrop;
+use std::ptr;
 
+/// Min-heap or max-heap selector for [`Heap`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeapType {
+    /// Root is always the smallest element.
     Min,
+    /// Root is always the largest element.
     Max,
 }
 
+impl HeapType {
+    /// `true` if `a` must yield its spot to `b`.
+    #[inline]
+    fn worse<T: PartialOrd>(self, a: &T, b: &T) -> bool {
+        match self {
+            HeapType::Min => a > b,
+            HeapType::Max => a < b,
+        }
+    }
+}
+
+/// A min/max binary heap backed by a `Vec<T>`.
+///
+/// Only requires `PartialOrd`, so it works directly with floats. Values
+/// that aren't comparable to each other (e.g. `NaN`) are never reordered
+/// relative to one another, but nothing panics.
 #[derive(Debug)]
 pub struct Heap<T> {
     data: Vec<T>,
-    comparator: HeapComparator<T>,
+    heap_type: HeapType,
 }
 
 impl<T: PartialOrd> Heap<T> {
+    /// Below this size, `extract` uses [`Heap::float_down_to_bottom`];
+    /// above it, plain [`Heap::float_down`]. See `extract` and
+    /// `benches/heap_benchmark.rs`.
+    const SIFT_TO_BOTTOM_THRESHOLD: usize = 20_000;
+
+    /// Creates an empty heap of the given type.
     pub fn new(heap_type: HeapType) -> Self {
         Self {
             data: Vec::new(),
-            comparator: Self::get_comparator(heap_type),
+            heap_type,
         }
     }
 
+    /// Alias for [`Heap::from_vec`].
     #[deprecated(since = "0.1.0", note = "use `from_vec` instead")]
     pub fn from_array(heap_type: HeapType, input: Vec<T>) -> Self {
         Self::from_vec(heap_type, input)
     }
 
+    /// Builds a heap from an existing `Vec<T>` in `O(n)`, cheaper than
+    /// inserting each element one by one (`O(n log n)`).
     pub fn from_vec(heap_type: HeapType, input: Vec<T>) -> Self {
         let mut heap = Self {
             data: input,
-            comparator: Self::get_comparator(heap_type),
+            heap_type,
         };
 
         let size = heap.data.len();
@@ -41,59 +70,108 @@ impl<T: PartialOrd> Heap<T> {
         heap
     }
 
-    #[inline]
-    const fn parent(index: usize) -> usize {
-        (index - 1) / 2
-    }
-
-    fn float_down(&mut self, mut index: usize) {
+    /// Sift-down: sinks the element at `pos` until the heap invariant
+    /// holds. Used by `from_vec`'s heapify and by `extract` on large
+    /// heaps. Stops as soon as the invariant holds, unlike
+    /// [`Heap::float_down_to_bottom`].
+    fn float_down(&mut self, pos: usize) {
         let len = self.data.len();
-        loop {
-            let left = 2 * index + 1;
-            let right = left + 1;
-            let mut candidate = index;
+        let heap_type = self.heap_type;
 
-            if left < len && (self.comparator)(&self.data[candidate], &self.data[left]) {
-                candidate = left;
-            }
-            if right < len && (self.comparator)(&self.data[candidate], &self.data[right]) {
-                candidate = right;
+        // SAFETY: `pos < len` is guaranteed by every caller (`from_vec`
+        // only calls it with indices below `size`, `extract` with `0` on
+        // a non-empty heap).
+        let mut hole = unsafe { Hole::new(&mut self.data, pos) };
+        let mut child = 2 * hole.pos() + 1;
+
+        while child < len {
+            let right = child + 1;
+            // SAFETY: both indices are `< len`, i.e. within the slice,
+            // and neither equals the hole's current position because
+            // child/right are strictly below the hole's subtree root.
+            if right < len && unsafe { heap_type.worse(hole.get(child), hole.get(right)) } {
+                child = right;
             }
 
-            if candidate == index {
+            // SAFETY: `child < len` and `child != hole.pos()`.
+            if !unsafe { heap_type.worse(hole.element(), hole.get(child)) } {
                 break;
             }
 
-            self.data.swap(index, candidate);
-            index = candidate;
+            // SAFETY: same as above.
+            unsafe { hole.move_to(child) };
+            child = 2 * hole.pos() + 1;
         }
     }
 
-    fn float_up(&mut self, mut index: usize) {
-        while index > 0 {
-            let parent = Self::parent(index);
-            if (self.comparator)(&self.data[parent], &self.data[index]) {
-                self.data.swap(parent, index);
-                index = parent;
-            } else {
+    /// Sift-up: lifts the element at `pos` toward `start` until the heap
+    /// invariant holds. Used by `insert` (`start == 0`) and by
+    /// [`Heap::float_down_to_bottom`] to settle an element it sank too far.
+    fn float_up(&mut self, start: usize, pos: usize) {
+        let heap_type = self.heap_type;
+
+        // SAFETY: every caller passes a valid in-bounds index.
+        let mut hole = unsafe { Hole::new(&mut self.data, pos) };
+
+        while hole.pos() > start {
+            let parent = (hole.pos() - 1) / 2;
+            // SAFETY: `parent < hole.pos() < len` and `parent != hole.pos()`.
+            if !unsafe { heap_type.worse(hole.get(parent), hole.element()) } {
                 break;
             }
+            // SAFETY: same as above.
+            unsafe { hole.move_to(parent) };
         }
     }
 
+    /// Sinks the element at `pos` all the way to the bottom, then
+    /// `float_up`s it back into place. Fewer comparisons than
+    /// [`Heap::float_down`] but touches more memory — used by `extract`
+    /// below [`Heap::SIFT_TO_BOTTOM_THRESHOLD`].
+    fn float_down_to_bottom(&mut self, pos: usize) {
+        let heap_type = self.heap_type;
+        let len = self.data.len();
+        let start = pos;
+
+        // SAFETY: caller (`extract`) guarantees `pos < len`.
+        let mut hole = unsafe { Hole::new(&mut self.data, pos) };
+        let mut child = 2 * hole.pos() + 1;
+
+        while child < len {
+            let right = child + 1;
+            // SAFETY: both indices are `< len` and distinct from the hole.
+            if right < len && unsafe { heap_type.worse(hole.get(child), hole.get(right)) } {
+                child = right;
+            }
+            // SAFETY: `child < len` and `child != hole.pos()`.
+            unsafe { hole.move_to(child) };
+            child = 2 * hole.pos() + 1;
+        }
+
+        let final_pos = hole.pos();
+        drop(hole);
+
+        self.float_up(start, final_pos);
+    }
+
+    /// Inserts a value, preserving the heap invariant. `O(log n)`.
     pub fn insert(&mut self, value: T) {
         self.data.push(value);
         let new_size = self.data.len();
         if new_size > 1 {
-            self.float_up(new_size - 1);
+            self.float_up(0, new_size - 1);
         }
     }
 
+    /// Peeks at the root (min or max, per [`HeapType`]) without removing it.
+    /// `None` if empty.
     #[must_use]
     pub fn root(&self) -> Option<&T> {
         self.data.first()
     }
 
+    /// Removes and returns the root, re-heapifying the rest. `None` if
+    /// empty. `O(log n)`.
     #[must_use]
     pub fn extract(&mut self) -> Option<T> {
         if self.data.is_empty() {
@@ -105,34 +183,49 @@ impl<T: PartialOrd> Heap<T> {
 
         let last = self.data.pop().unwrap();
         let result = std::mem::replace(&mut self.data[0], last);
-        self.float_down(0);
+
+        if self.data.len() <= Self::SIFT_TO_BOTTOM_THRESHOLD {
+            self.float_down_to_bottom(0);
+        } else {
+            self.float_down(0);
+        }
+
         Some(result)
     }
 
+    /// Returns the element at raw array position `index` (heap order, not
+    /// sorted order). Mainly for tests/inspection.
     pub fn get(&self, index: usize) -> Option<&T> {
         self.data.get(index)
     }
 
+    /// Returns the internal `Vec<T>`.
     #[deprecated(since = "1.0.0", note = "use `as_slice` instead")]
     pub fn raw(&self) -> &Vec<T> {
         &self.data
     }
 
+    /// Returns the heap's contents as a slice, in heap order (not sorted).
     #[must_use]
     pub fn as_slice(&self) -> &[T] {
         &self.data
     }
 
+    /// Number of elements in the heap.
     #[must_use]
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
+    /// `true` if the heap has no elements.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
+    /// Extracts every element in heap order (ascending for `Min`,
+    /// descending for `Max`) into a `Vec<T>`, leaving the heap empty.
+    /// `O(n log n)`.
     pub fn collect(&mut self) -> Vec<T> {
         let mut output = Vec::with_capacity(self.data.len());
         while let Some(value) = self.extract() {
@@ -140,11 +233,85 @@ impl<T: PartialOrd> Heap<T> {
         }
         output
     }
+}
 
-    fn get_comparator(heap_type: HeapType) -> HeapComparator<T> {
-        match heap_type {
-            HeapType::Min => |a, b| a > b,
-            HeapType::Max => |a, b| a < b,
+/// A vacated slot in a slice while its element is "in flight". Moving the
+/// hole costs one write (`move_to`) instead of a full swap; the carried
+/// element is written back once, on drop.
+struct Hole<'a, T> {
+    data: &'a mut [T],
+    elt: ManuallyDrop<T>,
+    pos: usize,
+}
+
+impl<'a, T> Hole<'a, T> {
+    /// Creates a hole at `pos`, taking the element out of the slice.
+    ///
+    /// # Safety
+    /// `pos` must be a valid index into `data`.
+    #[inline]
+    unsafe fn new(data: &'a mut [T], pos: usize) -> Self {
+        debug_assert!(pos < data.len());
+        // SAFETY: caller guarantees `pos` is in bounds.
+        let elt = unsafe { ptr::read(data.get_unchecked(pos)) };
+        Hole {
+            data,
+            elt: ManuallyDrop::new(elt),
+            pos,
+        }
+    }
+
+    /// Current position of the hole.
+    #[inline]
+    fn pos(&self) -> usize {
+        self.pos
+    }
+
+    /// The element that was taken out of the slice to create the hole.
+    #[inline]
+    fn element(&self) -> &T {
+        &self.elt
+    }
+
+    /// Returns a reference to the element at `index`.
+    ///
+    /// # Safety
+    /// `index` must be a valid, in-bounds index different from `self.pos`.
+    #[inline]
+    unsafe fn get(&self, index: usize) -> &T {
+        debug_assert!(index != self.pos);
+        debug_assert!(index < self.data.len());
+        // SAFETY: caller guarantees `index` is in bounds and not the hole.
+        unsafe { self.data.get_unchecked(index) }
+    }
+
+    /// Moves the hole to `index`, copying the element currently there into
+    /// the hole's old position.
+    ///
+    /// # Safety
+    /// `index` must be a valid, in-bounds index different from `self.pos`.
+    #[inline]
+    unsafe fn move_to(&mut self, index: usize) {
+        debug_assert!(index != self.pos);
+        debug_assert!(index < self.data.len());
+        // SAFETY: both `index` and `self.pos` are in bounds and distinct,
+        // so the regions don't overlap.
+        unsafe {
+            let ptr = self.data.as_mut_ptr();
+            ptr::copy_nonoverlapping(ptr.add(index), ptr.add(self.pos), 1);
+        }
+        self.pos = index;
+    }
+}
+
+impl<T> Drop for Hole<'_, T> {
+    /// Writes the displaced element back into its final resting place.
+    #[inline]
+    fn drop(&mut self) {
+        // SAFETY: `self.pos` is always a valid in-bounds index.
+        unsafe {
+            let pos = self.pos;
+            ptr::copy_nonoverlapping(&*self.elt, self.data.get_unchecked_mut(pos), 1);
         }
     }
 }
