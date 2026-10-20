@@ -113,6 +113,7 @@ impl<T: PartialOrd> Heap<T> {
         self.data.get(index)
     }
 
+    #[deprecated(since = "1.0.0", note = "use `as_slice` instead")]
     pub fn raw(&self) -> &Vec<T> {
         &self.data
     }
@@ -120,6 +121,16 @@ impl<T: PartialOrd> Heap<T> {
     #[must_use]
     pub fn as_slice(&self) -> &[T] {
         &self.data
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 
     pub fn collect(&mut self) -> Vec<T> {
@@ -134,32 +145,6 @@ impl<T: PartialOrd> Heap<T> {
         match heap_type {
             HeapType::Min => |a, b| a > b,
             HeapType::Max => |a, b| a < b,
-        }
-    }
-
-    #[allow(dead_code)]
-    fn heapify(&mut self, index: usize) -> Option<usize> {
-        let mut affected_index = index;
-
-        let l_index = 2 * index + 1;
-        let r_index = l_index + 1;
-
-        let data = &mut self.data;
-        let comparator = self.comparator;
-
-        if data.get(l_index).is_some() && comparator(&data[affected_index], &data[l_index]) {
-            affected_index = l_index;
-        }
-
-        if data.get(r_index).is_some() && comparator(&data[affected_index], &data[r_index]) {
-            affected_index = r_index;
-        }
-
-        if affected_index != index {
-            data.swap(index, affected_index);
-            Some(affected_index)
-        } else {
-            None
         }
     }
 }
@@ -179,19 +164,21 @@ mod test {
         result
     }
 
-    #[test]
-    fn test_heapify() {
-        let mut heap = Heap::<u32>::new(HeapType::Max);
-
-        let input = vec![1, 3, 2];
-        let expected = [3, 1, 2];
-
-        heap.data = input;
-        heap.heapify(0);
-
-        let output = heap.raw();
-
-        assert_eq!(*output, expected);
+    fn is_valid_heap<T: PartialOrd>(data: &[T], heap_type: HeapType) -> bool {
+        for i in 0..data.len() {
+            let left = 2 * i + 1;
+            let right = left + 1;
+            let violates = |child: usize| {
+                data.get(child).is_some_and(|c| match heap_type {
+                    HeapType::Min => data[i] > *c,
+                    HeapType::Max => data[i] < *c,
+                })
+            };
+            if violates(left) || violates(right) {
+                return false;
+            }
+        }
+        true
     }
 
     #[test]
@@ -199,19 +186,19 @@ mod test {
         let mut heap = Heap::<u32>::new(HeapType::Min);
 
         heap.insert(10);
-        assert_eq!(*heap.raw(), vec![10]);
+        assert_eq!(heap.as_slice(), vec![10]);
 
         heap.insert(11);
-        assert_eq!(*heap.raw(), vec![10, 11]);
+        assert_eq!(heap.as_slice(), vec![10, 11]);
 
         heap.insert(9);
-        assert_eq!(*heap.raw(), vec![9, 11, 10]);
+        assert_eq!(heap.as_slice(), vec![9, 11, 10]);
 
         heap.insert(5);
-        assert_eq!(*heap.raw(), vec![5, 9, 10, 11]);
+        assert_eq!(heap.as_slice(), vec![5, 9, 10, 11]);
 
         heap.insert(6);
-        assert_eq!(*heap.raw(), vec![5, 6, 10, 11, 9]);
+        assert_eq!(heap.as_slice(), vec![5, 6, 10, 11, 9]);
 
         let mut expected = vec![5, 6, 10, 11, 9];
         expected.sort();
@@ -223,19 +210,19 @@ mod test {
         let mut heap = Heap::<u32>::new(HeapType::Max);
 
         heap.insert(10);
-        assert_eq!(*heap.raw(), vec![10]);
+        assert_eq!(heap.as_slice(), vec![10]);
 
         heap.insert(11);
-        assert_eq!(*heap.raw(), vec![11, 10]);
+        assert_eq!(heap.as_slice(), vec![11, 10]);
 
         heap.insert(9);
-        assert_eq!(*heap.raw(), vec![11, 10, 9]);
+        assert_eq!(heap.as_slice(), vec![11, 10, 9]);
 
         heap.insert(5);
-        assert_eq!(*heap.raw(), vec![11, 10, 9, 5]);
+        assert_eq!(heap.as_slice(), vec![11, 10, 9, 5]);
 
         heap.insert(6);
-        assert_eq!(*heap.raw(), vec![11, 10, 9, 5, 6]);
+        assert_eq!(heap.as_slice(), vec![11, 10, 9, 5, 6]);
 
         let mut expected = vec![5, 6, 10, 11, 9];
         expected.sort();
@@ -313,7 +300,7 @@ mod test {
         assert_eq!(heap.root(), None);
         assert_eq!(heap.extract(), None);
         assert_eq!(heap.get(0), None);
-        assert!(heap.raw().is_empty());
+        assert!(heap.as_slice().is_empty());
         assert!(heap.as_slice().is_empty());
         assert!(heap.collect().is_empty());
     }
@@ -330,12 +317,99 @@ mod test {
     }
 
     #[test]
-    fn test_duplicates() {
+    fn test_duplicates_min() {
         let mut heap = Heap::<u32>::new(HeapType::Min);
         for _ in 0..5 {
             heap.insert(7);
         }
         assert_eq!(heap.collect(), vec![7; 5]);
+    }
+
+    #[test]
+    fn test_duplicates_max() {
+        let mut heap = Heap::<u32>::new(HeapType::Max);
+        for _ in 0..5 {
+            heap.insert(7);
+        }
+        assert_eq!(heap.collect(), vec![7; 5]);
+    }
+
+    #[test]
+    fn test_len_and_is_empty() {
+        let mut heap = Heap::<u32>::new(HeapType::Min);
+        assert_eq!(heap.len(), 0);
+        assert!(heap.is_empty());
+
+        heap.insert(1);
+        heap.insert(2);
+        assert_eq!(heap.len(), 2);
+        assert!(!heap.is_empty());
+
+        let _ = heap.extract();
+        let _ = heap.extract();
+        assert_eq!(heap.len(), 0);
+        assert!(heap.is_empty());
+    }
+
+    #[test]
+    fn test_extract_size_two() {
+        let mut heap = Heap::<u32>::new(HeapType::Min);
+        heap.insert(5);
+        heap.insert(3);
+        assert_eq!(heap.extract(), Some(3));
+        assert_eq!(heap.extract(), Some(5));
+        assert_eq!(heap.extract(), None);
+    }
+
+    #[test]
+    fn test_from_vec_already_valid_heap() {
+        // Already a valid max-heap; from_vec should be a no-op in terms of ordering.
+        let input = vec![10, 5, 8, 1, 4, 7, 6];
+        assert!(is_valid_heap(&input, HeapType::Max));
+
+        let heap = Heap::<u32>::from_vec(HeapType::Max, input.clone());
+        assert!(is_valid_heap(heap.as_slice(), HeapType::Max));
+        assert_eq!(heap.root(), Some(&10));
+    }
+
+    #[test]
+    fn test_floats() {
+        let input = vec![3.5f64, 1.2, 9.9, -2.3, 0.0];
+
+        let mut min_heap = Heap::<f64>::from_vec(HeapType::Min, input.clone());
+        let mut expected = input.clone();
+        expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(min_heap.collect(), expected);
+
+        let mut max_heap = Heap::<f64>::from_vec(HeapType::Max, input.clone());
+        let mut expected = input.clone();
+        expected.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        assert_eq!(max_heap.collect(), expected);
+    }
+
+    #[test]
+    fn test_interleaved_insert_extract() {
+        let mut heap = Heap::<u32>::new(HeapType::Min);
+
+        heap.insert(5);
+        heap.insert(3);
+        assert_eq!(heap.extract(), Some(3));
+        assert!(is_valid_heap(heap.as_slice(), HeapType::Min));
+
+        heap.insert(1);
+        heap.insert(8);
+        assert_eq!(heap.extract(), Some(1));
+        assert!(is_valid_heap(heap.as_slice(), HeapType::Min));
+
+        heap.insert(2);
+        assert_eq!(heap.extract(), Some(2));
+        assert_eq!(heap.extract(), Some(5));
+        assert!(is_valid_heap(heap.as_slice(), HeapType::Min));
+
+        heap.insert(0);
+        assert_eq!(heap.extract(), Some(0));
+        assert_eq!(heap.extract(), Some(8));
+        assert_eq!(heap.extract(), None);
     }
 
     #[test]
@@ -364,6 +438,7 @@ mod test {
 
                 // from_vec min
                 let mut heap = Heap::<u32>::from_vec(HeapType::Min, input.clone());
+                assert!(is_valid_heap(heap.as_slice(), HeapType::Min));
                 let mut expected = input.clone();
                 expected.sort();
                 assert_eq!(heap.collect(), expected);
@@ -372,6 +447,7 @@ mod test {
                 let mut heap = Heap::<u32>::new(HeapType::Max);
                 for value in &input {
                     heap.insert(*value);
+                    assert!(is_valid_heap(heap.as_slice(), HeapType::Max));
                 }
                 let mut expected = input.clone();
                 expected.sort();
