@@ -1,7 +1,8 @@
 [package]
 name = "csheap"
 version = "0.1.10"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 license = "MIT"
 description = "A heap implementation over a vector"
 repository = "https://github.com/cstffx/csheap/"

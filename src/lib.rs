@@ -1,14 +1,6 @@
-#![feature(is_sorted)]
-
-macro_rules! get_parent {
-    ($index: expr) => {
-        ($index - 1) / 2
-    };
-}
-
 pub type HeapComparator<T> = fn(a: &T, b: &T) -> bool;
 
-#[derive(PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeapType {
     Min,
     Max,
@@ -20,17 +12,17 @@ pub struct Heap<T> {
     comparator: HeapComparator<T>,
 }
 
-impl<T> Heap<T> where T: PartialOrd + std::fmt::Display {
+impl<T: PartialOrd> Heap<T> {
     pub fn new(heap_type: HeapType) -> Self {
         Self {
             data: Vec::new(),
-            comparator: Heap::get_comparator(heap_type),
+            comparator: Self::get_comparator(heap_type),
         }
     }
 
-    #[deprecated]
+    #[deprecated(since = "0.1.0", note = "use `from_vec` instead")]
     pub fn from_array(heap_type: HeapType, input: Vec<T>) -> Self {
-        Heap::from_vec(heap_type, input)
+        Self::from_vec(heap_type, input)
     }
 
     pub fn from_vec(heap_type: HeapType, input: Vec<T>) -> Self {
@@ -40,40 +32,52 @@ impl<T> Heap<T> where T: PartialOrd + std::fmt::Display {
         };
 
         let size = heap.data.len();
-        if size == 0 {
-            return heap;
-        }
-
-        let mut i: usize = (size / 2) - 1;
-        loop {
-            let mut do_more = heap.heapify(i);
-            while do_more.is_some() {
-                do_more = heap.heapify(do_more.unwrap());
-            }
-            if i != 0 {
-                i = i - 1;
-            } else {
-                break;
+        if size > 1 {
+            for i in (0..size / 2).rev() {
+                heap.float_down(i);
             }
         }
 
         heap
     }
 
-    fn float_down(&mut self, index: usize) {
-        let mut do_more = self.heapify(index);
-        while do_more.is_some() {
-            do_more = self.heapify(do_more.unwrap());
+    #[inline]
+    const fn parent(index: usize) -> usize {
+        (index - 1) / 2
+    }
+
+    fn float_down(&mut self, mut index: usize) {
+        let len = self.data.len();
+        loop {
+            let left = 2 * index + 1;
+            let right = left + 1;
+            let mut candidate = index;
+
+            if left < len && (self.comparator)(&self.data[candidate], &self.data[left]) {
+                candidate = left;
+            }
+            if right < len && (self.comparator)(&self.data[candidate], &self.data[right]) {
+                candidate = right;
+            }
+
+            if candidate == index {
+                break;
+            }
+
+            self.data.swap(index, candidate);
+            index = candidate;
         }
     }
 
-    fn float_up(&mut self, index: usize) {
-        let mut _index = get_parent!(index);
-        let mut do_more = self.heapify(_index);
-
-        while _index != 0 && do_more.is_some() {
-            _index = get_parent!(_index);
-            do_more = self.heapify(_index);
+    fn float_up(&mut self, mut index: usize) {
+        while index > 0 {
+            let parent = Self::parent(index);
+            if (self.comparator)(&self.data[parent], &self.data[index]) {
+                self.data.swap(parent, index);
+                index = parent;
+            } else {
+                break;
+            }
         }
     }
 
@@ -85,25 +89,24 @@ impl<T> Heap<T> where T: PartialOrd + std::fmt::Display {
         }
     }
 
+    #[must_use]
     pub fn root(&self) -> Option<&T> {
-        self.data.get(0)
+        self.data.first()
     }
 
+    #[must_use]
     pub fn extract(&mut self) -> Option<T> {
         if self.data.is_empty() {
-            None
-        } else if self.data.len() == 1 {
-            Some(self.data.remove(0))
-        } else {
-            let last_index = self.data.len() - 1;
-            self.data.swap(0, last_index);
-
-            let result = self.data.remove(last_index);
-
-            self.float_down(0);
-
-            Some(result)
+            return None;
         }
+        if self.data.len() == 1 {
+            return self.data.pop();
+        }
+
+        let last = self.data.pop().unwrap();
+        let result = std::mem::replace(&mut self.data[0], last);
+        self.float_down(0);
+        Some(result)
     }
 
     pub fn get(&self, index: usize) -> Option<&T> {
@@ -114,40 +117,41 @@ impl<T> Heap<T> where T: PartialOrd + std::fmt::Display {
         &self.data
     }
 
+    #[must_use]
+    pub fn as_slice(&self) -> &[T] {
+        &self.data
+    }
+
     pub fn collect(&mut self) -> Vec<T> {
-        let mut output: Vec<T> = Vec::new();
-        for _ in 0..self.data.len() {
-            output.push(self.extract().unwrap());
+        let mut output = Vec::with_capacity(self.data.len());
+        while let Some(value) = self.extract() {
+            output.push(value);
         }
         output
     }
 
     fn get_comparator(heap_type: HeapType) -> HeapComparator<T> {
         match heap_type {
-            HeapType::Min => |a: &T, b: &T| {
-                a > b
-            },
-            HeapType::Max => |a: &T, b: &T| -> bool {
-                a < b
-            }
+            HeapType::Min => |a, b| a > b,
+            HeapType::Max => |a, b| a < b,
         }
     }
 
+    #[allow(dead_code)]
     fn heapify(&mut self, index: usize) -> Option<usize> {
-        let mut affected_index: usize = index;   // set parent as max element.
+        let mut affected_index = index;
 
-        let l_index = 2 * index + 1;        // get left child
-        let r_index = 2 * index + 2;        // get right child
+        let l_index = 2 * index + 1;
+        let r_index = l_index + 1;
 
-        let data = &mut self.data;          // to short
+        let data = &mut self.data;
         let comparator = self.comparator;
 
-        //  determinate max index
-        if !data.get(l_index).is_none() && comparator(&data[affected_index], &data[l_index]) {
+        if data.get(l_index).is_some() && comparator(&data[affected_index], &data[l_index]) {
             affected_index = l_index;
         }
 
-        if !data.get(r_index).is_none() && comparator(&data[affected_index], &data[r_index]) {
+        if data.get(r_index).is_some() && comparator(&data[affected_index], &data[r_index]) {
             affected_index = r_index;
         }
 
@@ -286,6 +290,9 @@ mod test {
     fn test_from_vec_edge() {
         // From empty vector
         let _ = Heap::<u32>::from_vec(HeapType::Max, Vec::new());
+        // Single element
+        let heap = Heap::<u32>::from_vec(HeapType::Max, vec![42]);
+        assert_eq!(heap.root(), Some(&42));
     }
 
     #[test]
@@ -300,4 +307,82 @@ mod test {
 
         assert_eq!(expected, output);
     }
+    #[test]
+    fn test_empty() {
+        let mut heap = Heap::<i32>::new(HeapType::Min);
+        assert_eq!(heap.root(), None);
+        assert_eq!(heap.extract(), None);
+        assert_eq!(heap.get(0), None);
+        assert!(heap.raw().is_empty());
+        assert!(heap.as_slice().is_empty());
+        assert!(heap.collect().is_empty());
+    }
+
+    #[test]
+    fn test_root_and_get() {
+        let mut heap = Heap::<u32>::new(HeapType::Max);
+        heap.insert(5);
+        heap.insert(10);
+        assert_eq!(heap.root(), Some(&10));
+        assert!(heap.get(0).is_some());
+        assert!(heap.get(1).is_some());
+        assert!(heap.get(100).is_none());
+    }
+
+    #[test]
+    fn test_duplicates() {
+        let mut heap = Heap::<u32>::new(HeapType::Min);
+        for _ in 0..5 {
+            heap.insert(7);
+        }
+        assert_eq!(heap.collect(), vec![7; 5]);
+    }
+
+    #[test]
+    fn test_from_vec_sizes() {
+        for size in 0..=5 {
+            let input: Vec<u32> = (0..size).rev().collect();
+            let mut heap = Heap::<u32>::from_vec(HeapType::Min, input.clone());
+            let mut expected = input.clone();
+            expected.sort();
+            assert_eq!(heap.collect(), expected);
+        }
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn test_from_array() {
+        let mut heap = Heap::<u32>::from_array(HeapType::Max, vec![1, 2, 3]);
+        assert_eq!(heap.collect(), vec![3, 2, 1]);
+    }
+
+    #[test]
+    fn test_random_property() {
+        for &size in &[0u32, 1, 2, 5, 50] {
+            for _ in 0..20 {
+                let input = random_vec(size);
+
+                // from_vec min
+                let mut heap = Heap::<u32>::from_vec(HeapType::Min, input.clone());
+                let mut expected = input.clone();
+                expected.sort();
+                assert_eq!(heap.collect(), expected);
+
+                // insert max
+                let mut heap = Heap::<u32>::new(HeapType::Max);
+                for value in &input {
+                    heap.insert(*value);
+                }
+                let mut expected = input.clone();
+                expected.sort();
+                expected.reverse();
+                let mut actual = Vec::new();
+                while let Some(value) = heap.extract() {
+                    actual.push(value);
+                }
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+
 }
